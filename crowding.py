@@ -164,7 +164,9 @@ def moveSim(track, test):
     print "p_val:"+str(p_val)
     return p_val
 
-
+## elements = [1.1, 2.2, 3.3]
+##probabilities = [0.2, 0.5, 0.3]
+##np.random.choice(elements, 10, p=probabilities)
 
 
 def ExtendMimic(track,p):
@@ -172,19 +174,25 @@ def ExtendMimic(track,p):
     end = track[endindex]
     V, Vset = getV(track)
     faketrack = track
-    for i in range(0,randint(1,0.5*track.size)):
-        q = Q.PriorityQueue()
-        for v in Vset:
+    for i in range(0,randint(1,int(0.6*track.size))):
+        #q = Q.PriorityQueue()
+        #for v in Vset:
             #print "prob:"+str(probability(v,end, V))
-            q.put((probability(v,end, V)-1,Vplus(end,v)))
-        while not q.empty():
-            candidate = q.get()[1]
+            #q.put((probability(v,end, V)-1,Vplus(end,v)))
+
+        probdist = [probability(v,end, V) for v in Vset]
+        #print probdist
+        #print Vset
+        #while not q.empty():
+        for i in range(1,len(Vset)):
+            #candidate = q.get()[1]
+            #This generates a new point candidate bas on random choice over movement probability
+            candidate =  Vplus(end,Vset[np.random.choice(np.arange(len(Vset)), None, p=list(probdist))])
             print candidate
             test = faketrack.copy()
-            test.loc[endindex+1] = candidate  # adding a row
+            test.loc[endindex+1] = candidate  # adding a row at the end of the dataframe
             test = test.reset_index(drop=True)  # sorting by index
-            #test = faketrack.append(pd.DataFrame(data = [candidate]))
-            if similarity(track, test) > p:
+            if (similarity(track, test) > p) & (candidate not in faketrack):
                 print("Extend track with:"+str(candidate))
                 faketrack = test
                 end = candidate
@@ -213,6 +221,7 @@ def Crowd(track='data\\301756.csv', k=10, p = 0.02) :
     trackgdf = gpd.GeoDataFrame(track, geometry='points')
     trackgdf.crs = {"init": 'epsg:4326'}
     trackgdf = trackgdf.to_crs({"init": 'epsg:28992'})
+    trackgdf.to_file(driver = 'ESRI Shapefile', filename = 'track.shp')
     #print trackgdf
 
     #Maximum distance parameter
@@ -231,13 +240,15 @@ def Crowd(track='data\\301756.csv', k=10, p = 0.02) :
 
     #Start of the programming logic
     lookup,rastertrack = Rasterize(trackgdf['points'],m)
-    rastertrack.plot(marker='*', color='blue', markersize=5)
+    #rastertrack.plot(marker='*', color='blue', markersize=5)
+    rastertrack.to_file(driver = 'ESRI Shapefile', filename = 'rastertrack.shp')
 
 
     faketrack = ExtendMimic(rastertrack,p)
     print faketrack
-    faketrack.plot(marker='*', color='green', markersize=5)
+    #faketrack.plot(marker='*', color='green', markersize=5)
     #plt.show();
+    faketrack.to_file(driver = 'ESRI Shapefile', filename = 'faketrack.shp')
 
 
 
@@ -261,7 +272,7 @@ def main():
 ##    df = pd.read_csv(track)
 ##    for track, trackdf in df.groupby("track"):
 ##        trackdf.to_csv('data\\'+str(track)+".csv")
-    df = pd.read_csv('data\\301756.csv')
+    df = pd.read_csv('data\\332541.csv')
     track = df[['X','Y']]
     Crowd(track)
 
