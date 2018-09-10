@@ -178,7 +178,7 @@ def ExtendMimic(track,p):
     end = track[endindex]
     V, Vset = getV(track)
     faketrack = track
-    for i in range(0,randint(1,int(0.6*track.size))):
+    for i in range(0,randint(1,int(0.7*track.size))):
         #q = Q.PriorityQueue()
         #for v in Vset:
             #print "prob:"+str(probability(v,end, V))
@@ -223,14 +223,17 @@ def vNTemplate(r):
     return template
 
 def rdmshift(template):
-    v0 = template[np.random.choice(np.arange(len(template)))]
+    #This random selection prefers center points sitting at the periphery of the template
+    templatedistances = [float(max(abs(p.x),abs(p.y))+1) for p in template]
+    templateprobabilities = [d/sum(templatedistances) for d in templatedistances]
+    v0 = template[np.random.choice(np.arange(len(template)), None, p=templateprobabilities)]
     template = [Vminus(v, v0) for v in template]
-    print [str(p) for p in template]
+    #print [str(p) for p in template]
     return  template
 
 def apply(vgeo, template,m):
     template = [Vplus(vgeo, Vmult(m,v)) for v in template]
-    print [str(p) for p in template]
+    #print [str(p) for p in template]
     return  template
 
 
@@ -239,14 +242,30 @@ def Masking(track, m, r, k, d):
     Pred = []
     vntemplate = vNTemplate(r)
     for v in track:
+        print("Now masking point: "+str(v) )
         #Randomly shift template
         temp = apply(v, rdmshift(vntemplate),m)
         #print temp
-        candidates = [vk for vk in temp if not v.equals(vk) and v not in track]
+        candidates = [vk for vk in temp if vk not in Pred]
+
+        #Mask
         candidates.append(v)
-        out.append
+        print [str(p) for p in candidates]
+        mask = candidates
 
 
+        out.extend(mask)
+        Pred = mask
+
+    print(str(len(out))+" masked points from originally "+str(track.size))
+    outgdf = pointlist2GDF(out)
+    return outgdf
+
+
+def pointlist2GDF(pointlist):
+        rt = pd.DataFrame({'points': pointlist})
+        outputframe = gpd.GeoDataFrame(rt, geometry='points')['points']
+        return outputframe
 
 
 """Main crowding function"""
@@ -285,7 +304,8 @@ def Crowd(track='data\\301756.csv', k=10, p = 0.02) :
     #plt.show();
     faketrack.to_file(driver = 'ESRI Shapefile', filename = 'faketrack.shp')
 
-    Masking(faketrack,m, r, k, d)
+    maskedtrack = Masking(faketrack,m, r, k, d)
+    maskedtrack.to_file(driver = 'ESRI Shapefile', filename = 'maskedtrack.shp')
 
 
 
