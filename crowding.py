@@ -41,13 +41,7 @@ fig, ax = plt.subplots()
 ax.set_aspect('equal')
 
 
-
-
-def getDistances(track):
-    #Returns an array of distances in a sequence of point geometries in the track
-   return [x.distance(track[i[0]+1]) for i,x in np.ndenumerate(track.values) if i[0]+1 < track.values.size]
-    #print pd.rolling_apply(track, 2,  lambda x: Point(x[0]["X"],x[0]['Y']).distance(Point(x[1]['X'],x[1]['Y'])))
-
+"""Functions for rasterization"""
 
 def Rasterize(track,m):
     print('Size of original track:'+str(track.size))
@@ -66,13 +60,21 @@ def Rasterize(track,m):
     print rastertrack
     return lookup,rastertrack
 
+
+
+"""Functions for mimicking track extension"""
+
+#Spatial vector operations
 def Vminus(p1, p2):
     return Point(p1.x - p2.x, p1.y - p2.y)
 
 def Vplus(p1, p2):
     return Point(p1.x + p2.x, p1.y + p2.y)
 
+def Vmult(m, p):
+    return Point(p.x*m, p.y*m)
 
+#Generating differences vector list and set in track sequence
 def getV(track):
     #Get the vector difference between all pairs of points in the track
      V = [ Vminus(track[i[0]+1], p) for i,p in np.ndenumerate(track.values) if i[0]+1 < track.values.size]
@@ -90,8 +92,14 @@ def getV(track):
             Vset.append(v)
      return  V, Vset
 
+#Genereating distance list for track
+def getDistances(track):
+    #Returns an array of distances in a sequence of point geometries in the track
+   return [x.distance(track[i[0]+1]) for i,x in np.ndenumerate(track.values) if i[0]+1 < track.values.size]
+    #print pd.rolling_apply(track, 2,  lambda x: Point(x[0]["X"],x[0]['Y']).distance(Point(x[1]['X'],x[1]['Y'])))
 
 
+#Computing movement and location probablity
 def probability(v,end, V):
     return moveProb(v, V) #* locProb(v,end)
 
@@ -109,18 +117,19 @@ def moveProb(v, V):
 """A function for looking up Raster cell row/colum projected in RD_new, based on a WGS84 coordinate pair as input as well as a Geo raster tile"""
 project = lambda x, y: pyproj.transform(pyproj.Proj(init='EPSG:4326'), pyproj.Proj(init='EPSG:28992'), x, y)
 def lookupWGS84(x,y,GeoT):
-    p = shapely.geometry.point.Point(x,y)
-    print(str(p))
-    pn = transform(project, p)
-    print(str(pn))
-    try:
-        # Find location of point (x,y) on raster, e.g. to extract info at that location
-        col, row = gr.map_pixel(pn.x,pn.y,GeoT[1],GeoT[-1], GeoT[0],GeoT[3])
-        #value = gr.map_pixel(pn.x,pn.y, )
-    except:
-        print "Coordinates out of bounds!"
-        return 'NN','NN'
-    return row, col
+    pass
+##    p = shapely.geometry.point.Point(x,y)
+##    print(str(p))
+##    pn = transform(project, p)
+##    print(str(pn))
+##    try:
+##        # Find location of point (x,y) on raster, e.g. to extract info at that location
+##        col, row = gr.map_pixel(pn.x,pn.y,GeoT[1],GeoT[-1], GeoT[0],GeoT[3])
+##        #value = gr.map_pixel(pn.x,pn.y, )
+##    except:
+##        print "Coordinates out of bounds!"
+##        return 'NN','NN'
+##    return row, col
 
 def locProb(v,end):
     return 0.5
@@ -136,11 +145,6 @@ def locProb(v,end):
 ##                    pass
 ##    else:
 ##                    print("Coordinates out of bounds!")
-
-
-
-
-
 
 
 
@@ -207,14 +211,45 @@ def ExtendMimic(track,p):
 
 
 
+"""Functions for template masking"""
+
+def vNTemplate(r):
+    template = []
+    for x in range(-r,r+1):
+        for y in range(-r,r+1):
+            if abs(x) + abs(y) <= r:
+                template.append(Point(x,y))
+    print [str(p) for p in template]
+    return template
+
+def rdmshift(template):
+    v0 = template[np.random.choice(np.arange(len(template)))]
+    template = [Vminus(v, v0) for v in template]
+    print [str(p) for p in template]
+    return  template
+
+def apply(vgeo, template,m):
+    template = [Vplus(vgeo, Vmult(m,v)) for v in template]
+    print [str(p) for p in template]
+    return  template
+
+
+def Masking(track, m, r, k, d):
+    out = []
+    Pred = []
+    vntemplate = vNTemplate(r)
+    for v in track:
+        #Randomly shift template
+        temp = apply(v, rdmshift(vntemplate),m)
+        #print temp
+        candidates = [vk for vk in temp if not v.equals(vk) and v not in track]
+        candidates.append(v)
+        out.append
 
 
 
 
-
-
-
-
+"""Main crowding function"""
 def Crowd(track='data\\301756.csv', k=10, p = 0.02) :
     track['points'] = list(zip(track.X, track.Y))
     track['points']  = track['points'].apply(Point)
@@ -234,7 +269,7 @@ def Crowd(track='data\\301756.csv', k=10, p = 0.02) :
     print('the rounding increment is '+str(m))
 
     #Template radius
-    r = math.ceil((-1 + math.sqrt(1+4*k))/2)
+    r = int(math.ceil((-1 + math.sqrt(1+4*k))/2))
     print('the template radius is '+str(r))
 
 
@@ -250,6 +285,7 @@ def Crowd(track='data\\301756.csv', k=10, p = 0.02) :
     #plt.show();
     faketrack.to_file(driver = 'ESRI Shapefile', filename = 'faketrack.shp')
 
+    Masking(faketrack,m, r, k, d)
 
 
 
@@ -275,6 +311,9 @@ def main():
     df = pd.read_csv('data\\332541.csv')
     track = df[['X','Y']]
     Crowd(track)
+
+
+
 
 if __name__ == '__main__':
     main()
