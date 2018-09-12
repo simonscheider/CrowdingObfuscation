@@ -1,8 +1,10 @@
 #-------------------------------------------------------------------------------
-# Name:        module1
-# Purpose:
+# Name:        Crowding
+# Purpose:     Functions for implementing a crowding obfuscation strategy for point tracks.
+#              Each track is handled in terms of a geopandas data frame with shapely geometries.
+#               Main method is Crowd().
 #
-# Author:      Schei008
+# Author:      Simon Scheider
 #
 # Created:     04/09/2018
 # Copyright:   (c) Schei008 2018
@@ -15,7 +17,6 @@ import os
 import shapely
 from shapely import geometry
 from shapely.geometry import Point
-import matplotlib.pyplot as plt
 import random
 import time
 import math
@@ -28,53 +29,45 @@ import pyproj
 #see https://github.com/jswhit/pyproj
 from shapely.ops import transform
 from shapely.geometry import shape
-
-
 from scipy import stats
 
 
-fig, ax = plt.subplots()
+#Spatial vector operations. These are used to implement vector algebra with shapely geometries for template masking
+def Vminus(p1, p2):  #Vector subtraction
+    return Point(p1.x - p2.x, p1.y - p2.y)
 
-# set aspect to equal. This is done automatically
-# when using *geopandas* plot on it's own, but not when
-# working with pyplot directly.
-ax.set_aspect('equal')
+def Vplus(p1, p2):  #Vector addition
+    return Point(p1.x + p2.x, p1.y + p2.y)
+
+def Vmult(m, p): #Multiplication of a vector with a scalar
+    return Point(p.x*m, p.y*m)
 
 
-"""Functions for rasterization"""
+"""Functions for rasterization of track"""
 
 def Rasterize(track,m):
     print('Size of original track:'+str(track.size))
+    #This rounds each point in the track based on rounding increment m
     lookup = track.apply(lambda p: (np.round(p.x/m)*m, np.round(p.y/m)*m) )
     rt = pd.DataFrame({'points': lookup.unique()})
-    print("lookup table:")
+    print("lookup table (for picking enrichments for each point of the initial track):")
     lookup = lookup.apply(lambda (x,y): Point(x, y) )
     print lookup
 
     rt['geom'] = rt['points'].apply(Point)
 
     rastertrack = gpd.GeoDataFrame(rt, geometry='geom')['geom']
-    #Point(np.round(p.x/m)*m, np.round(p.y/m)*m)
 
     print("rasterized track:")
     print rastertrack
+
     return lookup,rastertrack
 
 
 
-"""Functions for mimicking track extension"""
+"""Functions for track extension (mimick)"""
 
-#Spatial vector operations
-def Vminus(p1, p2):
-    return Point(p1.x - p2.x, p1.y - p2.y)
-
-def Vplus(p1, p2):
-    return Point(p1.x + p2.x, p1.y + p2.y)
-
-def Vmult(m, p):
-    return Point(p.x*m, p.y*m)
-
-#Generating differences vector list and set in track sequence
+#Generates a list of difference vectors for a track sequence. Also generates a corresponding set  with unique point values.
 def getV(track):
     #Get the vector difference between all pairs of points in the track
      V = [ Vminus(track[i[0]+1], p) for i,p in np.ndenumerate(track.values) if i[0]+1 < track.values.size]
@@ -92,18 +85,17 @@ def getV(track):
             Vset.append(v)
      return  V, Vset
 
-#Genereating distance list for track
+#Generates a distance list for a track sequence
 def getDistances(track):
     #Returns an array of distances in a sequence of point geometries in the track
    return [x.distance(track[i[0]+1]) for i,x in np.ndenumerate(track.values) if i[0]+1 < track.values.size]
-    #print pd.rolling_apply(track, 2,  lambda x: Point(x[0]["X"],x[0]['Y']).distance(Point(x[1]['X'],x[1]['Y'])))
 
 
-#Computing movement and location probablity
+#Computes a combined probability out of movement and location probablity
 def probability(v,end, V):
     return moveProb(v, V) #* locProb(v,end)
 
-
+#Computes a movement probability (probability that a relative vector occurs in the sequence of a track)
 def moveProb(v, V):
     c = 0
     #Count the number of occurrences of this movement in the track
@@ -115,7 +107,7 @@ def moveProb(v, V):
 
 
 """A function for looking up Raster cell row/colum projected in RD_new, based on a WGS84 coordinate pair as input as well as a Geo raster tile"""
-project = lambda x, y: pyproj.transform(pyproj.Proj(init='EPSG:4326'), pyproj.Proj(init='EPSG:28992'), x, y)
+#project = lambda x, y: pyproj.transform(pyproj.Proj(init='EPSG:4326'), pyproj.Proj(init='EPSG:28992'), x, y)
 def lookupWGS84(x,y,GeoT):
     pass
 ##    p = shapely.geometry.point.Point(x,y)
@@ -131,6 +123,7 @@ def lookupWGS84(x,y,GeoT):
 ##        return 'NN','NN'
 ##    return row, col
 
+#Generates a location probability for a given point based on a distribution of landuse in the track
 def locProb(v,end):
     return 0.5
 ##    BBG2012_Publicatiebestand = 'data\\BBG2012_Publicatiebestand.tif'
@@ -147,10 +140,11 @@ def locProb(v,end):
 ##                    print("Coordinates out of bounds!")
 
 
-
+#Computes a track similarity based on movement similarity and location similarity (still lacking)
 def similarity(track, test):
     return moveSim(track, test)
 
+#Computes movement similarity based on chi square contingency table of movement probabilities of relative vectors in two tracks
 def moveSim(track, test):
     Vtrack, vsettrack = getV(track)
     #print [str(v) for v in Vtrack]
@@ -168,16 +162,15 @@ def moveSim(track, test):
     print "p_val:"+str(p_val)
     return p_val
 
-## elements = [1.1, 2.2, 3.3]
-##probabilities = [0.2, 0.5, 0.3]
-##np.random.choice(elements, 10, p=probabilities)
 
-
+#Extends a track (on one end) based on a probability distribution over relative vectors (movements) in the track sequence
 def ExtendMimic(track,p):
+    #Choose an end of the track  (right now only the last point)
     endindex = track.size-1#int(round(float(randint(0,track.size))/float(track.size))*(track.size-1))
     end = track[endindex]
     V, Vset = getV(track)
     faketrack = track
+    #Generate 1 .. max(0.7*track.size) new fake points
     for i in range(0,randint(1,int(0.7*track.size))):
         #q = Q.PriorityQueue()
         #for v in Vset:
@@ -190,11 +183,11 @@ def ExtendMimic(track,p):
         #while not q.empty():
         for i in range(1,len(Vset)):
             #candidate = q.get()[1]
-            #This generates a new point candidate bas on random choice over movement probability
+            #This generates a new point candidate based on random choice of relative vectors over movement probability
             candidate =  Vplus(end,Vset[np.random.choice(np.arange(len(Vset)), None, p=list(probdist))])
             print candidate
             test = faketrack.copy()
-            test.loc[endindex+1] = candidate  # adding a row at the end of the dataframe
+            test.loc[endindex+1] = candidate  # adding a row to the end of the dataframe  (cumbersome because of geopandas)
             test = test.reset_index(drop=True)  # sorting by index
             if (similarity(track, test) > p) & (candidate not in faketrack):
                 print("Extend track with:"+str(candidate))
@@ -213,6 +206,7 @@ def ExtendMimic(track,p):
 
 """Functions for template masking"""
 
+#Generates a van Neuman neighborhood template (a set of relative point vectors) with radius r
 def vNTemplate(r):
     template = []
     for x in range(-r,r+1):
@@ -222,6 +216,7 @@ def vNTemplate(r):
     print [str(p) for p in template]
     return template
 
+#Randomly shifts the centerpoint of the template. Prefers points at the periphery of the template
 def rdmshift(template):
     #This random selection prefers center points sitting at the periphery of the template
     templatedistances = [float(max(abs(p.x),abs(p.y))+1) for p in template]
@@ -231,12 +226,13 @@ def rdmshift(template):
     #print [str(p) for p in template]
     return  template
 
+#Applies a template to a geographic point using the rounding increment
 def apply(vgeo, template,m):
     template = [Vplus(vgeo, Vmult(m,v)) for v in template]
     #print [str(p) for p in template]
     return  template
 
-
+#Masks each point in a track using some template
 def Masking(track, m, r, k, d):
     out = []
     Pred = []
@@ -261,15 +257,18 @@ def Masking(track, m, r, k, d):
     outgdf = pointlist2GDF(out)
     return outgdf
 
-
+#Turns point list into geopandas data frame
 def pointlist2GDF(pointlist):
         rt = pd.DataFrame({'points': pointlist})
         outputframe = gpd.GeoDataFrame(rt, geometry='points')['points']
         return outputframe
 
 
+
+
+
 """Main crowding function"""
-def Crowd(track='data\\301756.csv', k=10, p = 0.02) :
+def Crowd(track, k=10, p = 0.02) :
     track['points'] = list(zip(track.X, track.Y))
     track['points']  = track['points'].apply(Point)
     trackgdf = gpd.GeoDataFrame(track, geometry='points')
@@ -294,25 +293,17 @@ def Crowd(track='data\\301756.csv', k=10, p = 0.02) :
 
     #Start of the programming logic
     lookup,rastertrack = Rasterize(trackgdf['points'],m)
-    #rastertrack.plot(marker='*', color='blue', markersize=5)
     rastertrack.to_file(driver = 'ESRI Shapefile', filename = 'rastertrack.shp')
 
 
     faketrack = ExtendMimic(rastertrack,p)
     print faketrack
-    #faketrack.plot(marker='*', color='green', markersize=5)
-    #plt.show();
     faketrack.to_file(driver = 'ESRI Shapefile', filename = 'faketrack.shp')
 
     maskedtrack = Masking(faketrack,m, r, k, d)
     maskedtrack.to_file(driver = 'ESRI Shapefile', filename = 'maskedtrack.shp')
 
 
-
-
-
-
-    #print df
 
 
 
